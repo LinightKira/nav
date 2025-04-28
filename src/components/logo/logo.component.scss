@@ -6,6 +6,7 @@
   background-color: #eee;
   border-radius: 3px;
   object-fit: cover;
+  transition: all 0.12s linear;
   &::after {
     content: '' attr(alt);
     z-index: 2;
@@ -28,7 +29,9 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  border-radius: 50%;
-  background-color: #1890ff;
   font-size: 18px;
+}
+
+.common-icon {
+  transition: all 0.1s linear;
 }

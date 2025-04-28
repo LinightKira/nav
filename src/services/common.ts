@@ -1,5 +1,5 @@
-// 开源项目MIT，未经作者同意，不得以抄袭/复制代码/修改源代码版权信息，允许商业途径。
-// Copyright @ 2018-present xiejiahe. All rights reserved. MIT license.
+// 开源项目，未经作者同意，不得以抄袭/复制代码/修改源代码版权信息。
+// Copyright @ 2018-present xiejiahe. All rights reserved.
 // See https://github.com/xjh22222228/nav
 
 import { Injectable } from '@angular/core'
@@ -7,47 +7,54 @@ import { Router, ActivatedRoute } from '@angular/router'
 import { websiteList, settings } from 'src/store'
 import {
   queryString,
-  toggleCollapseAll,
   fuzzySearch,
   matchCurrentList,
-  setWebsiteList,
   getOverIndex,
+  getClassById,
 } from 'src/utils'
-import { INavProps, INavThreeProp } from 'src/types'
-import { isLogin } from 'src/utils/user'
+import { setWebsiteList, toggleCollapseAll } from 'src/utils/web'
+import type { INavProps, INavThreeProp } from 'src/types'
+import { isLogin, getPermissions } from 'src/utils/user'
+import { isSelfDevelop } from 'src/utils/utils'
 import event from 'src/utils/mitt'
 
 @Injectable({
   providedIn: 'root',
 })
-export class ServiceCommonService {
-  isLogin = isLogin
-  settings = settings
+export class CommonService {
+  readonly isLogin = isLogin
+  readonly settings = settings
+  readonly permissions = getPermissions(settings)
+  readonly title: string = settings.title.trim().split(/\s/)[0]
   websiteList: INavProps[] = websiteList
   currentList: INavThreeProp[] = []
-  id = 0
-  page = 0
+  twoIndex = 0
+  oneIndex = 0
   sliceMax = 0
-  selectedIndex = 0 // 第三级菜单选中
+  selectedThreeIndex = 0 // 第三级菜单选中
   searchKeyword = ''
   overIndex = Number.MAX_SAFE_INTEGER
-  title: string = settings.title.trim().split(/\s/)[0]
 
   constructor(private router: Router, private activatedRoute: ActivatedRoute) {
+    const getData = () => {
+      const { id, q } = queryString()
+      const { oneIndex, twoIndex, threeIndex } = getClassById(id)
+      this.oneIndex = oneIndex
+      this.twoIndex = twoIndex
+      this.selectedThreeIndex = threeIndex
+      this.searchKeyword = q
+
+      if (q) {
+        this.currentList = fuzzySearch(websiteList, q)
+      } else {
+        this.currentList = matchCurrentList()
+      }
+    }
+
     const init = () => {
       this.activatedRoute.queryParams.subscribe(() => {
-        const { id, page, q } = queryString()
-        this.page = page
-        this.id = id
-        this.searchKeyword = q
-        this.handleCheckThree(0)
         this.sliceMax = 0
-
-        if (q) {
-          this.currentList = fuzzySearch(websiteList, q)
-        } else {
-          this.currentList = matchCurrentList()
-        }
+        getData()
         setTimeout(() => {
           this.sliceMax = Number.MAX_SAFE_INTEGER
         }, 100)
@@ -60,32 +67,20 @@ export class ServiceCommonService {
         init()
       })
     }
+    event.on('WEB_REFRESH', () => {
+      getData()
+    })
   }
 
-  handleCilckTopNav(index: number) {
-    const id = websiteList[index].id || 0
-    this.router.navigate([this.router.url.split('?')[0]], {
+  handleClickClass(id: number) {
+    this.router.navigate([], {
+      relativeTo: this.activatedRoute,
       queryParams: {
-        page: index,
         id,
         _: Date.now(),
       },
     })
-  }
-  handleSidebarNav(index: number, pageIndex?: number) {
-    const { page } = queryString()
-    websiteList[pageIndex ?? page].id = index
-    this.router.navigate([this.router.url.split('?')[0]], {
-      queryParams: {
-        page: pageIndex ?? page,
-        id: index,
-        _: Date.now(),
-      },
-    })
-  }
-
-  handleCheckThree(index: number) {
-    this.selectedIndex = index
+    event.emit('SEARCH_FOCUS')
   }
 
   onCollapseAll = (e?: Event) => {
@@ -103,16 +98,17 @@ export class ServiceCommonService {
 
   get collapsed() {
     try {
-      return !!websiteList[this.page].nav[this.id].collapsed
-    } catch (error) {
+      return !!websiteList[this.oneIndex].nav[this.twoIndex].collapsed
+    } catch {
       return false
     }
   }
 
-  onCollapse = (item: any, index: number) => {
+  onCollapse = (item: INavThreeProp) => {
     item.collapsed = !item.collapsed
-    this.websiteList[this.page].nav[this.id].nav[index] = item
-    setWebsiteList(this.websiteList)
+    if (!isSelfDevelop) {
+      setWebsiteList(this.websiteList)
+    }
   }
 
   getOverIndex(selector: string) {
@@ -123,5 +119,9 @@ export class ServiceCommonService {
       }
       this.overIndex = overIndex
     })
+  }
+
+  setOverIndex() {
+    this.overIndex = Number.MAX_SAFE_INTEGER
   }
 }

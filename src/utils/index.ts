@@ -1,5 +1,5 @@
-// 开源项目MIT，未经作者同意，不得以抄袭/复制代码/修改源代码版权信息，允许商业途径。
-// Copyright @ 2018-present xiejiahe. All rights reserved. MIT license.
+// 开源项目，未经作者同意，不得以抄袭/复制代码/修改源代码版权信息。
+// Copyright @ 2018-present xiejiahe. All rights reserved.
 // See https://github.com/xjh22222228/nav
 
 import qs from 'qs'
@@ -8,20 +8,15 @@ import {
   IWebProps,
   INavThreeProp,
   INavProps,
-  ISearchEngineProps,
+  ISearchItemProps,
+  IWebTag,
 } from '../types'
-import * as db from '../../data/db.json'
-import * as s from '../../data/search.json'
 import { STORAGE_KEY_MAP } from 'src/constants'
+import { CODE_SYMBOL } from 'src/constants/symbol'
 import { isLogin } from './user'
-import { SearchType } from 'src/components/search-engine/index'
-import { getIconUrl } from 'src/api'
-import localforage from 'localforage'
-import event from 'src/utils/mitt'
-
-export let websiteList: INavProps[] = []
-
-const searchEngineList: ISearchEngineProps[] = (s as any).default
+import { SearchType } from 'src/components/search/index'
+import { websiteList, search, settings, tagMap } from 'src/store'
+import { $t } from 'src/locale'
 
 export function randomInt(max: number) {
   return Math.floor(Math.random() * max)
@@ -34,40 +29,67 @@ export function fuzzySearch(
   if (!keyword.trim()) {
     return []
   }
+  keyword = keyword.toLowerCase()
 
-  const { type, page, id } = queryString()
-  const sType = Number(type) || SearchType.Title
+  const { type, id } = queryString()
+  const { oneIndex, twoIndex } = getClassById(id)
+  const sType = Number(type) || SearchType.All
   const navData: IWebProps[] = []
-  const resultList: INavThreeProp[] = [{ nav: navData }]
-  const urlRecordMap: Record<string, any> = {}
+  let resultList: INavThreeProp[] = [
+    { nav: navData, id: -1, title: $t('_searchRes'), icon: '' },
+  ]
+  const urlRecordMap = new Map<number, boolean>()
+
+  if (sType === SearchType.Class) {
+    resultList = []
+  }
 
   function f(arr?: any[]) {
     arr = arr || navList
 
-    for (let i = 0; i < arr.length; i++) {
+    outerLoop: for (let i = 0; i < arr.length; i++) {
       const item = arr[i]
+
+      if (sType === SearchType.Class) {
+        if (item.title) {
+          if (
+            item.title.toLowerCase().includes(keyword) ||
+            item.id == keyword
+          ) {
+            resultList.push(item)
+          }
+        }
+
+        if (Array.isArray(item.nav)) {
+          f(item.nav)
+        }
+        continue
+      }
+
       if (Array.isArray(item.nav)) {
         f(item.nav)
       }
 
-      if (navData.length > 50) break
-
       if (item.name) {
+        item.name = getTextContent(item.name)
+        item.desc = getTextContent(item.desc)
         const name = item.name.toLowerCase()
         const desc = item.desc.toLowerCase()
         const url = item.url.toLowerCase()
-        const search = keyword.toLowerCase()
-        const urls: string[] = Object.values(item.urls || {})
+        const isCode = desc[0] === CODE_SYMBOL
+        if (isCode) {
+          continue
+        }
 
-        function searchTitle(): boolean {
-          if (name.includes(search)) {
-            let result = { ...item }
+        const searchTitle = (): boolean => {
+          if (name.includes(keyword)) {
+            let result = item
             const regex = new RegExp(`(${keyword})`, 'i')
             result.__name__ = result.name
-            result.name = result.name.replace(regex, `$1`.bold())
+            result.name = result.name.replace(regex, '<b>$1</b>')
 
-            if (!urlRecordMap[result.url]) {
-              urlRecordMap[result.url] = true
+            if (!urlRecordMap.has(result.id)) {
+              urlRecordMap.set(result.id, true)
               navData.push(result)
               return true
             }
@@ -75,37 +97,74 @@ export function fuzzySearch(
           return false
         }
 
-        function searchUrl() {
-          if (url?.includes?.(keyword.toLowerCase())) {
-            if (!urlRecordMap[item.url]) {
-              urlRecordMap[item.url] = true
+        const searchUrl = (): any => {
+          if (url.includes(keyword)) {
+            if (!urlRecordMap.has(item.id)) {
+              urlRecordMap.set(item.id, true)
               navData.push(item)
               return true
             }
           }
 
-          const find = urls.some((item: string) => item.includes(keyword))
+          const find = item.tags.some((item: IWebTag) =>
+            item.url?.includes(keyword)
+          )
           if (find) {
-            if (!urlRecordMap[item.url]) {
-              urlRecordMap[item.url] = true
+            if (!urlRecordMap.has(item.id)) {
+              urlRecordMap.set(item.id, true)
               navData.push(item)
               return true
             }
           }
         }
 
-        function searchDesc(): boolean {
-          if (desc.includes(search)) {
-            let result = { ...item }
+        const searchDesc = (): boolean => {
+          if (desc.includes(keyword)) {
+            let result = item
             const regex = new RegExp(`(${keyword})`, 'i')
             result.__desc__ = result.desc
-            result.desc = result.desc.replace(regex, `$1`.bold())
+            result.desc = result.desc.replace(regex, '<b>$1</b>')
 
-            if (!urlRecordMap[result.url]) {
-              urlRecordMap[result.url] = true
+            if (!urlRecordMap.has(result.id)) {
+              urlRecordMap.set(result.id, true)
               navData.push(result)
               return true
             }
+          }
+          return false
+        }
+
+        const searchQuick = (): boolean => {
+          if (item.top && name.includes(keyword)) {
+            let result = item
+            const regex = new RegExp(`(${keyword})`, 'i')
+            result.__name__ = result.name
+            result.name = result.name.replace(regex, '<b>$1</b>')
+
+            if (!urlRecordMap.has(result.id)) {
+              urlRecordMap.set(result.id, true)
+              navData.push(result)
+              return true
+            }
+          }
+          return false
+        }
+
+        const searchTags = () => {
+          return item.tags.forEach((tag: IWebTag) => {
+            if (tagMap[tag.id]?.name?.toLowerCase() === keyword) {
+              if (!urlRecordMap.has(item.id)) {
+                urlRecordMap.set(item.id, true)
+                navData.push(item)
+              }
+            }
+          })
+        }
+
+        const searchId = (): boolean => {
+          if (item.id == keyword) {
+            navData.push(item)
+            return true
           }
           return false
         }
@@ -124,6 +183,20 @@ export function fuzzySearch(
               searchDesc()
               break
 
+            case SearchType.Quick:
+              searchQuick()
+              break
+
+            case SearchType.Tag:
+              searchTags()
+              break
+
+            case SearchType.Id:
+              if (searchId()) {
+                break outerLoop
+              }
+              break
+
             default:
               searchTitle()
               searchDesc()
@@ -137,225 +210,128 @@ export function fuzzySearch(
   }
 
   if (sType === SearchType.Current) {
-    f(navList[page].nav[id].nav)
+    f(navList[oneIndex].nav[twoIndex].nav)
   } else {
     f()
   }
 
-  if (navData.length <= 0) {
+  if (sType !== SearchType.Class && navData.length <= 0) {
     return []
   }
-
   return resultList
 }
 
-function randomColor(): string {
-  const r = randomInt(255)
-  const g = randomInt(255)
-  const b = randomInt(255)
-  const c = `#${r.toString(16)}${g.toString(16)}${b.toString(16)}000`
-  return c.slice(0, 7)
+export function randomColor(): string {
+  const randomValue = Math.floor(Math.random() * 0xffffff)
+  const hexColor = randomValue.toString(16).padStart(6, '0')
+  return `#${hexColor}`
 }
 
 let randomTimer: any
-export function randomBgImg() {
-  if (isDark()) return
+export function randomBgImg(): void {
+  if (randomTimer) {
+    clearInterval(randomTimer)
+  }
 
-  clearInterval(randomTimer)
   const id = 'random-light-bg'
   const el = document.getElementById(id) || document.createElement('div')
   const deg = randomInt(360)
   el.id = id
-  el.style.cssText =
-    'position:fixed;top:0;left:0;right:0;bottom:0;z-index:-3;transition: 1s linear;'
+  el.className = 'dark-bg'
+  el.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: -3;
+    transition: 1s linear;
+  `
   el.style.backgroundImage = `linear-gradient(${deg}deg, ${randomColor()} 0%, ${randomColor()} 100%)`
   document.body.appendChild(el)
 
-  function setBg() {
-    if (isDark()) {
-      clearInterval(randomTimer)
-      return
-    }
+  const transition = (): void => {
     const randomBg = `linear-gradient(${deg}deg, ${randomColor()} 0%, ${randomColor()} 100%)`
-    el.style.opacity = '.3'
+    el.style.opacity = '0.3'
     setTimeout(() => {
       el.style.backgroundImage = randomBg
       el.style.opacity = '1'
     }, 1000)
   }
 
-  randomTimer = setInterval(setBg, 10000)
+  randomTimer = setInterval(transition, 10000)
 }
 
-export function queryString(): {
-  q: string
-  id: number
-  page: number
-  [key: string]: any
-} {
-  const { href } = window.location
+export function removeBgImg(): void {
+  if (randomTimer) {
+    clearInterval(randomTimer)
+    randomTimer = null
+  }
+  const el = document.getElementById('random-light-bg')
+  if (el) {
+    el.parentNode?.removeChild(el)
+  }
+}
+
+export function queryString() {
+  const { href } = location
   const search = href.split('?')[1] || ''
   const parseQs = qs.parse(search)
-  let id = parseInt(parseQs['id'] as string) || 0
-  let page = parseInt(parseQs['page'] as string) || 0
+  let id = parseQs['id']
 
-  if (parseQs['id'] === undefined && parseQs['page'] === undefined) {
+  if (parseQs['id'] == null) {
     try {
-      const location = window.localStorage.getItem(STORAGE_KEY_MAP.location)
+      const location = localStorage.getItem(STORAGE_KEY_MAP.LOCATION)
       if (location) {
         const localLocation = JSON.parse(location)
-        page = localLocation.page || 0
-        id = localLocation.id || 0
+        id = localLocation.id
       }
     } catch {}
   }
 
-  if (page > websiteList.length - 1) {
-    page = 0
-    id = 0
-  } else {
-    if (websiteList[page] && !(id <= websiteList[page].nav.length - 1)) {
-      id = websiteList[page].nav.length - 1
-    }
-  }
-
-  page = page < 0 ? 0 : page
-  id = id < 0 ? 0 : id
-
   return {
     ...parseQs,
+    type: parseQs['type'],
     q: (parseQs['q'] || '') as string,
     id,
-    page,
-  }
-}
-
-export function adapterWebsiteList(websiteList: any[]) {
-  function filterOwn(item: IWebProps) {
-    if (item.ownVisible && !isLogin) {
-      return false
-    }
-    return true
-  }
-  websiteList = websiteList.filter(filterOwn)
-  for (let i = 0; i < websiteList.length; i++) {
-    const item = websiteList[i]
-
-    if (Array.isArray(item.nav)) {
-      item.nav = item.nav.filter(filterOwn)
-      adapterWebsiteList(item.nav)
-    }
-  }
-
-  return websiteList
-}
-
-;(async () => {
-  let data = adapterWebsiteList((db as any).default)
-  const metaEl = document.getElementById('META-NAV')
-  const date = metaEl?.dataset?.['date'] || ''
-  const storageDate = window.localStorage.getItem(STORAGE_KEY_MAP.s_url)
-
-  // 检测到网站更新，清除缓存本地保存记录失效
-  if (storageDate !== date) {
-    const whiteList = [
-      STORAGE_KEY_MAP.token,
-      STORAGE_KEY_MAP.isDark,
-      STORAGE_KEY_MAP.authCode,
-    ]
-    const len = window.localStorage.length
-    for (let i = 0; i < len; i++) {
-      const key = window.localStorage.key(i) as string
-      if (whiteList.includes(key)) {
-        continue
-      }
-      window.localStorage.removeItem(key)
-    }
-    window.localStorage.setItem(STORAGE_KEY_MAP.s_url, date)
-    localforage.removeItem(STORAGE_KEY_MAP.website)
-    data.forEach((item) => {
-      websiteList.push(item)
-    })
-    event.emit('WEB_FINISH')
-    window.__FINISHED__ = true
-    if (isLogin) {
-      setTimeout(() => {
-        event.emit('NOTIFICATION', {
-          type: 'success',
-          title: '构建完成',
-          content: date,
-          config: {
-            nzDuration: 0,
-          },
-        })
-      }, 1000)
-    }
-    return
-  }
-
-  try {
-    const dbData: any =
-      (await localforage.getItem(STORAGE_KEY_MAP.website)) || data
-    dbData.forEach((item: any) => {
-      websiteList.push(item)
-    })
-    event.emit('WEB_FINISH')
-    window.__FINISHED__ = true
-  } catch {}
-})()
-
-export function setWebsiteList(v?: INavProps[]) {
-  v = v || websiteList
-  localforage.setItem(STORAGE_KEY_MAP.website, v)
-}
-
-export function toggleCollapseAll(wsList?: INavProps[]): boolean {
-  wsList ||= websiteList
-
-  const { page, id } = queryString()
-  const collapsed = !wsList[page].nav[id].collapsed
-
-  wsList[page].nav[id].collapsed = collapsed
-
-  wsList[page].nav[id].nav.map((item) => {
-    item.collapsed = collapsed
-    return item
-  })
-
-  setWebsiteList(wsList)
-
-  return collapsed
+  } as const
 }
 
 export function setLocation() {
-  const { page, id } = queryString()
+  const { id } = queryString()
 
   window.localStorage.setItem(
-    STORAGE_KEY_MAP.location,
+    STORAGE_KEY_MAP.LOCATION,
     JSON.stringify({
-      page,
       id,
     })
   )
 }
 
-export function getDefaultSearchEngine(): ISearchEngineProps {
-  let DEFAULT = (searchEngineList[0] || {}) as ISearchEngineProps
+export function getDefaultSearchEngine(): ISearchItemProps {
+  let DEFAULT = (search.list[0] || {}) as ISearchItemProps
   try {
-    const engine = window.localStorage.getItem(STORAGE_KEY_MAP.engine)
+    const engine = window.localStorage.getItem(STORAGE_KEY_MAP.SEARCH_ENGINE)
     if (engine) {
-      DEFAULT = JSON.parse(engine)
+      const local = JSON.parse(engine)
+      const findItem = search.list.find((item) => item.name === local.name)
+      if (findItem) {
+        DEFAULT = findItem
+      }
     }
   } catch {}
   return DEFAULT
 }
 
-export function setDefaultSearchEngine(engine: ISearchEngineProps) {
-  window.localStorage.setItem(STORAGE_KEY_MAP.engine, JSON.stringify(engine))
+export function setDefaultSearchEngine(engine: ISearchItemProps) {
+  window.localStorage.setItem(
+    STORAGE_KEY_MAP.SEARCH_ENGINE,
+    JSON.stringify(engine)
+  )
 }
 
 export function isDark(): boolean {
-  const storageVal = window.localStorage.getItem(STORAGE_KEY_MAP.isDark)
+  const storageVal = window.localStorage.getItem(STORAGE_KEY_MAP.IS_DARK)
   const darkMode = window?.matchMedia?.('(prefers-color-scheme: dark)')?.matches
 
   if (!storageVal && darkMode) {
@@ -363,18 +339,6 @@ export function isDark(): boolean {
   }
 
   return Boolean(Number(storageVal))
-}
-
-export async function getWebInfo(url: string): Promise<Record<string, any>> {
-  try {
-    const res = await getIconUrl(url)
-    return {
-      ...res.data,
-    }
-  } catch (error) {}
-  return {
-    status: false,
-  }
 }
 
 export function copyText(el: Event, text: string): Promise<boolean> {
@@ -397,14 +361,20 @@ export function copyText(el: Event, text: string): Promise<boolean> {
   })
 }
 
-export async function isValidImg(url: string): Promise<boolean> {
-  if (!url) return false
+export async function isValidImg(
+  url: string
+): Promise<{ valid: boolean; url: string }> {
+  const payload = {
+    valid: false,
+    url,
+  }
+  if (!url) return payload
 
-  if (url === 'null' || url === 'undefined') return false
+  if (url === 'null' || url === 'undefined') return payload
 
   const { protocol } = window.location
 
-  if (protocol === 'https:' && url.startsWith('http:')) return false
+  if (protocol === 'https:' && url.startsWith('http:')) return payload
 
   return new Promise((resolve) => {
     const img = document.createElement('img')
@@ -412,87 +382,35 @@ export async function isValidImg(url: string): Promise<boolean> {
     img.style.display = 'none'
     img.onload = () => {
       img.parentNode?.removeChild(img)
-      resolve(true)
+      payload.valid = true
+      resolve(payload)
     }
     img.onerror = () => {
       img.parentNode?.removeChild(img)
-      resolve(false)
+      resolve(payload)
     }
     document.body.append(img)
   })
 }
 
-export function deleteByWeb(data: IWebProps) {
-  function f(arr: any[]) {
-    for (let i = 0; i < arr.length; i++) {
-      const item = arr[i]
-      if (item.name) {
-        if (item.id === data.id) {
-          arr.splice(i, 1)
-          const { q } = queryString()
-          q && window.location.reload()
-          break
-        }
-        continue
-      }
-
-      if (Array.isArray(item.nav)) {
-        f(item.nav)
-      }
-    }
-  }
-
-  f(websiteList)
-  setWebsiteList(websiteList)
-}
-
-export function updateByWeb(oldData: IWebProps, newData: IWebProps) {
-  const keys = Object.keys(newData)
-  let ok = false
-  function f(arr: any[]) {
-    for (let i = 0; i < arr.length; i++) {
-      const item = arr[i]
-      if (item.name) {
-        if (item.id === oldData.id) {
-          ok = true
-          for (let k of keys) {
-            item[k] = newData[k]
-          }
-          break
-        }
-        continue
-      }
-
-      if (Array.isArray(item.nav)) {
-        f(item.nav)
-      }
-    }
-  }
-
-  f(websiteList)
-  setWebsiteList(websiteList)
-  return ok
-}
-
 // value 可能含有标签元素，用于过滤掉标签获取纯文字
-export function getTextContent(value: string): string {
+export function getTextContent(value: string = ''): string {
   if (!value) return ''
-  const div = document.createElement('div')
-  div.innerHTML = value
-  return div.textContent ?? ''
+  return value.replace(/<b>|<\/b>/g, '')
 }
 
 export function matchCurrentList(): INavThreeProp[] {
-  const { id, page } = queryString()
+  const { id } = queryString()
+  const { oneIndex, twoIndex } = getClassById(id)
   let data: INavThreeProp[] = []
 
   try {
     if (
-      websiteList[page] &&
-      websiteList[page]?.nav?.length > 0 &&
-      (isLogin || !websiteList[page].nav[id].ownVisible)
+      websiteList[oneIndex] &&
+      websiteList[oneIndex]?.nav?.length > 0 &&
+      (isLogin || !websiteList[oneIndex].nav[twoIndex].ownVisible)
     ) {
-      data = websiteList[page].nav[id].nav
+      data = websiteList[oneIndex].nav[twoIndex].nav
     } else {
       data = []
     }
@@ -503,8 +421,8 @@ export function matchCurrentList(): INavThreeProp[] {
   return data
 }
 
-export function addZero(n: number): string | number {
-  return n < 10 ? `0${n}` : n
+export function addZero(n: number): string {
+  return String(n).padStart(2, '0')
 }
 
 // 获取第几个元素超出父节点宽度
@@ -529,5 +447,126 @@ export function getOverIndex(selector: string): number {
 }
 
 export function isMobile() {
-  return 'ontouchstart' in window
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  )
+}
+
+// 今年第几天
+export function getDayOfYear() {
+  const now = new Date()
+  const startOfYear = new Date(now.getFullYear(), 0, 0)
+  // @ts-ignore
+  const diff = now - startOfYear
+  const oneDay = 1000 * 60 * 60 * 24
+  return Math.floor(diff / oneDay)
+}
+
+export function getDateTime() {
+  const weeks = $t('_weeks')
+  const now = new Date()
+  const year = now.getFullYear()
+  const hours = addZero(now.getHours())
+  const minutes = addZero(now.getMinutes())
+  const seconds = addZero(now.getSeconds())
+  const month = now.getMonth() + 1
+  const date = now.getDate()
+  const day = now.getDay()
+  const zeroDate = addZero(date)
+  return {
+    year,
+    hours,
+    minutes,
+    seconds,
+    month,
+    date,
+    zeroDate,
+    dayText: weeks[day],
+  } as const
+}
+
+export function getDefaultTheme() {
+  const t = isMobile() ? settings.appTheme : settings.theme
+  if (t === 'Current') {
+    return settings.theme
+  }
+  return t
+}
+
+export function getClassById(id: unknown, initValue = 0, isWebId = false) {
+  id = Number(id)
+  let oneIndex = initValue
+  let twoIndex = initValue
+  let threeIndex = initValue
+  let parentId = -1
+  const breadcrumb: string[] = []
+
+  outerLoop: for (let i = 0; i < websiteList.length; i++) {
+    const item = websiteList[i]
+    if (item.id === id) {
+      oneIndex = i
+      breadcrumb.push(item.title)
+      break
+    }
+    if (Array.isArray(item.nav)) {
+      for (let j = 0; j < item.nav.length; j++) {
+        const twoItem = item.nav[j]
+        if (twoItem.id === id) {
+          parentId = item.id
+          oneIndex = i
+          twoIndex = j
+          breadcrumb.push(item.title, twoItem.title)
+          break outerLoop
+        }
+        if (Array.isArray(twoItem.nav)) {
+          for (let k = 0; k < twoItem.nav.length; k++) {
+            const threeItem = twoItem.nav[k]
+            if (threeItem.id === id) {
+              parentId = twoItem.id
+              oneIndex = i
+              twoIndex = j
+              threeIndex = k
+              breadcrumb.push(item.title, twoItem.title, threeItem.title)
+              break outerLoop
+            }
+            if (isWebId) {
+              if (Array.isArray(threeItem.nav)) {
+                for (let l = 0; l < threeItem.nav.length; l++) {
+                  const web = threeItem.nav[l]
+                  if (web.id === id) {
+                    parentId = threeItem.id
+                    oneIndex = i
+                    twoIndex = j
+                    threeIndex = k
+                    breadcrumb.push(item.title, twoItem.title, threeItem.title)
+                    break outerLoop
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return { parentId, oneIndex, twoIndex, threeIndex, breadcrumb } as const
+}
+
+export function scrollIntoViewLeft(
+  parentElement: HTMLElement,
+  target: HTMLElement,
+  config?: ScrollToOptions
+) {
+  if (!parentElement || !target) {
+    return
+  }
+  const containerWidth = parentElement.offsetWidth
+  const categoryWidth = target.offsetWidth
+  const categoryLeft = target.offsetLeft
+  const scrollPosition = categoryLeft - (containerWidth - categoryWidth) / 2
+  parentElement.scrollTo({
+    left: scrollPosition,
+    behavior: 'smooth',
+    ...config,
+  })
 }

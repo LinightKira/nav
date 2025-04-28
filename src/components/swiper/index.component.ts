@@ -1,60 +1,26 @@
-// 开源项目MIT，未经作者同意，不得以抄袭/复制代码/修改源代码版权信息，允许商业途径。
-// Copyright @ 2018-present xiejiahe. All rights reserved. MIT license.
+// 开源项目，未经作者同意，不得以抄袭/复制代码/修改源代码版权信息。
+// Copyright @ 2018-present xiejiahe. All rights reserved.
 // See https://github.com/xjh22222228/nav
 
-import { Component, Input } from '@angular/core'
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core'
+import { CommonModule } from '@angular/common'
+import { JumpService } from 'src/services/jump'
+import { NzCarouselModule } from 'ng-zorro-antd/carousel'
+import type { ImageProps } from 'src/types'
+import { SwiperItemComponent } from './swiper-item/index.component'
 
 @Component({
+  standalone: true,
+  imports: [NzCarouselModule, CommonModule, SwiperItemComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'app-swiper',
   templateUrl: './index.component.html',
   styleUrls: ['./index.component.scss'],
 })
 export class SwiperComponent {
-  @Input() images: any[] = []
+  @Input() images: ImageProps[] = []
   @Input() autoplay = true
   @Input() height = 300
 
-  mySwiper: any = null
-  swiperId = 'swiper'
-
-  constructor() {
-    this.swiperId = 'swiper' + parseInt(String(Math.random() * 1000))
-  }
-
-  ngAfterViewInit() {
-    this.initSwiper()
-  }
-
-  ngOnDestroy() {
-    this.destroySwiper()
-  }
-
-  initSwiper() {
-    this.destroySwiper()
-    const el = document.getElementById(this.swiperId)
-    if (!el || !Swiper) {
-      console.log('swiper not found')
-      return
-    }
-    this.mySwiper = new Swiper(el, {
-      loop: true,
-      autoplay: this.autoplay
-        ? {
-            delay: 5000,
-          }
-        : false,
-
-      pagination: {
-        el: '.swiper-pagination',
-        clickable: true,
-      },
-    })
-  }
-
-  destroySwiper() {
-    if (this.mySwiper) {
-      this.mySwiper?.destroy?.()
-      this.mySwiper = null
-    }
-  }
+  constructor(public jumpService: JumpService) {}
 }

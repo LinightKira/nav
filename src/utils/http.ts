@@ -1,41 +1,67 @@
-// 开源项目MIT，未经作者同意，不得以抄袭/复制代码/修改源代码版权信息，允许商业途径。
-// Copyright @ 2018-present xiejiahe. All rights reserved. MIT license.
+// 开源项目，未经作者同意，不得以抄袭/复制代码/修改源代码版权信息。
+// Copyright @ 2018-present xiejiahe. All rights reserved.
+// See https://github.com/xjh22222228/nav
 
 import axios from 'axios'
 import NProgress from 'nprogress'
-import { getToken, getAuthCode } from '../utils/user'
-import config from '../../nav.config'
+import config from '../../nav.config.json'
 import event from './mitt'
-import { VERSION } from 'src/constants'
 import { settings } from 'src/store'
+import { getToken, getAuthCode, removeAuthCode } from '../utils/user'
+import { isLogin } from 'src/utils/user'
+import { getIsGitee, getIsGitLab } from 'src/utils/pureUtils'
 
-const DEFAULT_TITLE = document.title
-const headers: Record<string, string> = {}
+export function getAddress(): string {
+  return globalThis.__ADDRESS__ || config.address || ''
+}
+
+const isGitLab = getIsGitLab(config.gitRepoUrl)
+const gitLabBaseURL = 'https://gitlab.com/api/v4'
+const giteeBaseURL = 'https://gitee.com/api/v5'
+const gitHubBaseURL = 'https://api.github.com'
+
+function getBaseUrl() {
+  const address = getAddress()
+  if (address) {
+    return address
+  }
+  if (isGitLab) {
+    return gitLabBaseURL
+  } else if (getIsGitee(config.gitRepoUrl)) {
+    return giteeBaseURL
+  }
+  return gitHubBaseURL
+}
+
+export function getImageBaseUrl() {
+  if (getIsGitLab(config.imageRepoUrl)) {
+    return gitLabBaseURL
+  } else if (getIsGitee(config.imageRepoUrl)) {
+    return giteeBaseURL
+  }
+  return gitHubBaseURL
+}
 
 const httpInstance = axios.create({
   timeout: 60000 * 3,
-  baseURL:
-    config.provider === 'Gitee'
-      ? 'https://gitee.com/api/v5'
-      : 'https://api.github.com',
-  headers,
+  baseURL: getBaseUrl(),
 })
 
 function startLoad() {
   NProgress.start()
-  document.title = 'Connecting...'
 }
 
 function stopLoad() {
   NProgress.done()
-  document.title = DEFAULT_TITLE
 }
 
 httpInstance.interceptors.request.use(
   function (config) {
     const token = getToken()
     if (token) {
-      config.headers['Authorization'] = `token ${token}`
+      config.headers['Authorization'] ||= `${
+        isGitLab ? 'Bearer' : 'token'
+      } ${token}`
     }
     startLoad()
     return config
@@ -59,32 +85,47 @@ httpInstance.interceptors.response.use(
       type: 'error',
       title: 'Error：' + status,
       content: errorMsg,
+      config: {
+        nzDuration: document.hidden ? 0 : 5000,
+      },
     })
     stopLoad()
     return Promise.reject(error)
   }
 )
 
+export const HTTP_BASE_URL = 'https://api.nav3.cn'
+
 const httpNavInstance = axios.create({
-  timeout: 10000,
-  baseURL: 'https://nav-server.netlify.app',
-  // baseURL: 'http://localhost:3007',
+  timeout: 15000,
+  baseURL: HTTP_BASE_URL,
 })
+
+export function getDefaultRequestData(data?: any) {
+  const code = getAuthCode()
+  return {
+    code,
+    hostname: location.hostname,
+    host: location.host,
+    href: location.href,
+    isLogin,
+    ...config,
+    ...data,
+    email: settings.email,
+    language: settings.language,
+  } as const
+}
 
 httpNavInstance.interceptors.request.use(
   function (conf) {
-    const code = getAuthCode()
-    if (code) {
-      conf.headers['Authorization'] = code
+    const data = getDefaultRequestData()
+    if (data.code) {
+      conf.headers['Authorization'] = data.code
     }
-    conf.data = {
-      code,
-      hostname: window.location.hostname,
-      version: VERSION,
-      ...config,
-      ...conf.data,
+    conf.data = getDefaultRequestData(conf.data)
+    if (conf.data['showLoading'] !== false) {
+      startLoad()
     }
-    startLoad()
 
     return conf
   },
@@ -96,24 +137,35 @@ httpNavInstance.interceptors.request.use(
 
 httpNavInstance.interceptors.response.use(
   function (res) {
-    if (res.data?.success === false) {
-      event.emit('MESSAGE', {
-        type: 'error',
-        content: res.data.message,
-      })
-    }
     stopLoad()
     return res
   },
   function (error) {
+    if (error.response?.data?.statusCode === 401) {
+      removeAuthCode()
+      location.reload()
+    }
+
+    let showError = true
     const status =
       error.status || error.response?.data?.status || error.code || ''
     const errorMsg = error.response?.data?.message || error.message || ''
-    event.emit('NOTIFICATION', {
-      type: 'error',
-      title: 'Error：' + status,
-      content: errorMsg,
-    })
+    try {
+      if (JSON.parse(error.config.data).showError === false) {
+        showError = false
+      }
+    } catch {}
+    if (showError) {
+      event.emit('NOTIFICATION', {
+        type: 'error',
+        title: 'Error：' + status,
+        content: errorMsg,
+        config: {
+          nzDuration: document.hidden ? 0 : 5000,
+        },
+      })
+    }
+
     stopLoad()
     return Promise.reject(error)
   }

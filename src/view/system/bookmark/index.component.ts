@@ -1,24 +1,29 @@
-// @ts-nocheck
-// 开源项目MIT，未经作者同意，不得以抄袭/复制代码/修改源代码版权信息，允许商业途径。
-// Copyright @ 2018-present xiejiahe. All rights reserved. MIT license.
+// 开源项目，未经作者同意，不得以抄袭/复制代码/修改源代码版权信息。
+// Copyright @ 2018-present xiejiahe. All rights reserved.
 // See https://github.com/xjh22222228/nav
 
-import { Component } from '@angular/core'
+import { Component, ViewChild, ElementRef } from '@angular/core'
 import { $t } from 'src/locale'
 import { NzNotificationService } from 'ng-zorro-antd/notification'
 import { NzMessageService } from 'ng-zorro-antd/message'
-import { setWebsiteList } from 'src/utils'
+import { NzButtonModule } from 'ng-zorro-antd/button'
+import { setWebsiteList } from 'src/utils/web'
 import { parseBookmark } from 'src/utils/bookmark'
-import { INavProps } from 'src/types'
+import type { INavProps } from 'src/types'
 import { websiteList } from 'src/store'
+import { NzInputModule } from 'ng-zorro-antd/input'
 
 @Component({
+  standalone: true,
+  imports: [NzInputModule, NzButtonModule],
   selector: 'system-bookmark',
   templateUrl: './index.component.html',
   styleUrls: ['./index.component.scss'],
 })
 export default class SystemBookmarkComponent {
-  $t = $t
+  @ViewChild('file', { static: false }) file!: ElementRef
+
+  readonly $t = $t
   websiteList: INavProps[] = websiteList
 
   constructor(
@@ -27,6 +32,10 @@ export default class SystemBookmarkComponent {
   ) {}
 
   ngOnInit() {}
+
+  onClickFile() {
+    this.file.nativeElement.click()
+  }
 
   onBookChange(e: any) {
     const that = this
@@ -50,7 +59,7 @@ export default class SystemBookmarkComponent {
           setWebsiteList(that.websiteList)
           setTimeout(() => window.location.reload(), 2000)
         }
-      } catch (error) {
+      } catch (error: any) {
         that.notification.error($t('_errorBookTip'), `${error.message}`)
       }
     }
